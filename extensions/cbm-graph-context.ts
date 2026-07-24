@@ -28,14 +28,11 @@
  *   CBM_HOOKS_DEBUG   "1" / "true" to log actions to stderr
  */
 
-import {
-	isFindToolResult,
-	isGrepToolResult,
-	isReadToolResult,
-	type ExtensionAPI,
-	type FindToolInput,
-	type GrepToolInput,
-	type ReadToolInput,
+import type {
+	ExtensionAPI,
+	FindToolInput,
+	GrepToolInput,
+	ReadToolInput,
 } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
@@ -222,6 +219,22 @@ async function augmentRead(input: ReadToolInput, cwd: string): Promise<string | 
 	);
 }
 
+// Dispatch enrichment by tool name. Kept as a standalone function (not
+// contextually typed by the pi.on overload) so the Record<string, unknown> casts
+// stay isolated — ToolResultEvent's toolName discriminant collapses to
+// `string` because CustomToolResultEvent.toolName is `string`, so narrowing
+// inside the handler body would not reduce the union.
+async function augment(
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+): Promise<string | null> {
+	if (toolName === "grep") return augmentGrep(input as GrepToolInput, cwd);
+	if (toolName === "find") return augmentFind(input as FindToolInput, cwd);
+	if (toolName === "read") return augmentRead(input as ReadToolInput, cwd);
+	return null;
+}
+
 export default function (pi: ExtensionAPI): void {
 	if (DISABLED) {
 		debug("disabled by CBM_HOOKS_DISABLE");
@@ -252,15 +265,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return;
 		try {
-			let extra: string | null = null;
-			if (isGrepToolResult(event)) {
-				extra = await augmentGrep(event.input as GrepToolInput, ctx.cwd);
-			} else if (isFindToolResult(event)) {
-				extra = await augmentFind(event.input as FindToolInput, ctx.cwd);
-			} else if (isReadToolResult(event)) {
-				extra = await augmentRead(event.input as ReadToolInput, ctx.cwd);
-			}
-
+			const extra = await augment(event.toolName, event.input, ctx.cwd);
 			if (!extra) return;
 			return { content: [textBlock(extra), ...event.content] };
 		} catch (err) {
