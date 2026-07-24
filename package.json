@@ -1,0 +1,43 @@
+{
+  "name": "pi-codebase-memory-hooks",
+  "version": "0.1.0",
+  "description": "codebase-memory-mcp lifecycle hooks for the pi coding agent — session-start reminder, grep/glob graph augmentation, and read coverage, plus the codebase-memory skill.",
+  "keywords": [
+    "pi-package",
+    "codebase-memory",
+    "codebase-memory-mcp",
+    "mcp",
+    "knowledge-graph",
+    "pi-extension",
+    "tree-sitter"
+  ],
+  "license": "MIT",
+  "author": "ramaaudra",
+  "homepage": "https://github.com/ramaaudra/pi-codebase-memory-hooks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramaaudra/pi-codebase-memory-hooks.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ramaaudra/pi-codebase-memory-hooks/issues"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  }
+}

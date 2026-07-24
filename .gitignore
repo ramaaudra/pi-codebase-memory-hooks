@@ -1,0 +1,20 @@
+# Dependencies (pi installs run npm install — keep runtime deps out of git)
+node_modules/
+
+# npm
+*.tgz
+*.tar.gz
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# Local pi scratch (if anyone runs pi inside the repo)
+.pi/npm/
+.pi/git/
