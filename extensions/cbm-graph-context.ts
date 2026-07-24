@@ -23,7 +23,8 @@
  * is silent (the original tool result passes through unchanged).
  *
  * Env knobs (for review/safety):
- *   CBM_BIN           path to the codebase-memory-mcp binary
+ *   CBM_BIN           optional explicit path to the codebase-memory-mcp binary
+ *                      (default: auto-resolve `codebase-memory-mcp` from $PATH)
  *   CBM_HOOKS_DISABLE "1" / "true" to disable all enrichment
  *   CBM_HOOKS_DEBUG   "1" / "true" to log actions to stderr
  */
@@ -35,17 +36,42 @@ import type {
 	ReadToolInput,
 } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
-import { relative, resolve, sep } from "node:path";
+import { delimiter, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import { access, constants as fsConstants } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
 
-const CBM_BIN = process.env.CBM_BIN ?? "/Users/mbam1/.local/bin/codebase-memory-mcp";
+const DEFAULT_CBM_BIN = "/Users/mbam1/.local/bin/codebase-memory-mcp";
 const DISABLED = /^(1|true)$/i.test(process.env.CBM_HOOKS_DISABLE ?? "");
 const DEBUG = /^(1|true)$/i.test(process.env.CBM_HOOKS_DEBUG ?? "");
 const CLI_TIMEOUT_MS = 5000;
 const MAX_BUFFER = 4 * 1024 * 1024;
 const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+// Resolve the CBM binary once: explicit CBM_BIN env > $PATH lookup > hardcoded
+// fallback. Resolving via $PATH makes the package portable across machines
+// without forcing users to set CBM_BIN.
+async function resolveBin(): Promise<string> {
+	const envBin = process.env.CBM_BIN;
+	if (envBin) return envBin;
+	for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+		if (!dir) continue;
+		const candidate = resolve(dir, "codebase-memory-mcp");
+		try {
+			await access(candidate, fsConstants.X_OK);
+			return candidate;
+		} catch {
+			// not in this dir
+		}
+	}
+	return DEFAULT_CBM_BIN;
+}
+
+let binPromise: Promise<string> | null = null;
+function bin(): Promise<string> {
+	return (binPromise ??= resolveBin());
+}
 
 // Extensions worth a coverage check on `read`. Non-code files are skipped.
 const CODE_EXT = new Set([
@@ -77,7 +103,7 @@ function textBlock(text: string) {
 async function listProjects(): Promise<ProjectInfo[]> {
 	if (cache && Date.now() - cache.at < PROJECT_CACHE_TTL_MS) return cache.projects;
 	try {
-		const { stdout } = await execFileAsync(CBM_BIN, ["cli", "list_projects", "{}"], {
+		const { stdout } = await execFileAsync(await bin(), ["cli", "list_projects", "{}"], {
 			timeout: CLI_TIMEOUT_MS,
 			maxBuffer: MAX_BUFFER,
 		});
@@ -106,7 +132,7 @@ function findProject(projects: ProjectInfo[], absPath: string): ProjectInfo | nu
 
 async function runCli(tool: string, args: Record<string, unknown>): Promise<any | null> {
 	try {
-		const { stdout } = await execFileAsync(CBM_BIN, ["cli", tool, JSON.stringify(args)], {
+		const { stdout } = await execFileAsync(await bin(), ["cli", tool, JSON.stringify(args)], {
 			timeout: CLI_TIMEOUT_MS,
 			maxBuffer: MAX_BUFFER,
 		});

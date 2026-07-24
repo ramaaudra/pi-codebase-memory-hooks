@@ -89,11 +89,11 @@ All graph lookups use the CBM CLI one-shot mode (`codebase-memory-mcp cli …`),
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CBM_BIN` | `/Users/mbam1/.local/bin/codebase-memory-mcp` | Path to the `codebase-memory-mcp` binary. **Set this** if your binary lives elsewhere, especially on other machines. |
+| `CBM_BIN` | _(unset)_ | Path to the `codebase-memory-mcp` binary. If unset, the extension auto-resolves `codebase-memory-mcp` from `$PATH`; falls back to a hardcoded default only if not on `$PATH`. Set this only to override. |
 | `CBM_HOOKS_DISABLE` | unset | `1` or `true` disables all enrichment. |
 | `CBM_HOOKS_DEBUG` | unset | `1` or `true` logs actions to stderr. |
 
-> The default `CBM_BIN` is hardcoded to the original author's path. For portability, set `CBM_BIN` in your shell environment (e.g. `export CBM_BIN="$(command -v codebase-memory-mcp)"` in your shell rc) so the extension resolves the binary on any machine. A future release may auto-resolve via `$PATH`.
+> The extension auto-resolves `codebase-memory-mcp` from `$PATH` at runtime, so it works on any machine where CBM is installed — no `CBM_BIN` needed unless you want to override.
 
 ## Optional: install the AGENTS.md managed block
 
