@@ -28,7 +28,15 @@
  *   CBM_HOOKS_DEBUG   "1" / "true" to log actions to stderr
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	isFindToolResult,
+	isGrepToolResult,
+	isReadToolResult,
+	type ExtensionAPI,
+	type FindToolInput,
+	type GrepToolInput,
+	type ReadToolInput,
+} from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -132,10 +140,7 @@ function getExt(p: string): string {
 }
 
 // ── grep result enrichment ────────────────────────────────────────────────
-async function augmentGrep(
-	input: { pattern?: string; path?: string; glob?: string },
-	cwd: string,
-): Promise<string | null> {
+async function augmentGrep(input: GrepToolInput, cwd: string): Promise<string | null> {
 	if (!input.pattern) return null;
 	const searchRoot = resolve(cwd, input.path ?? cwd);
 	const projects = await listProjects();
@@ -162,10 +167,7 @@ async function augmentGrep(
 }
 
 // ── find result enrichment ────────────────────────────────────────────────
-async function augmentFind(
-	input: { pattern?: string; path?: string },
-	cwd: string,
-): Promise<string | null> {
+async function augmentFind(input: FindToolInput, cwd: string): Promise<string | null> {
 	if (!input.pattern) return null;
 	const searchRoot = resolve(cwd, input.path ?? cwd);
 	const projects = await listProjects();
@@ -192,10 +194,7 @@ async function augmentFind(
 }
 
 // ── read coverage enrichment ──────────────────────────────────────────────
-async function augmentRead(
-	input: { path?: string },
-	cwd: string,
-): Promise<string | null> {
+async function augmentRead(input: ReadToolInput, cwd: string): Promise<string | null> {
 	if (!input.path) return null;
 	const absPath = resolve(cwd, input.path);
 	const ext = getExt(absPath);
@@ -254,22 +253,18 @@ export default function (pi: ExtensionAPI): void {
 		if (event.isError) return;
 		try {
 			let extra: string | null = null;
-			const toolName = (event as { toolName?: string }).toolName;
-			const input = (event as { input?: Record<string, unknown> }).input ?? {};
-
-			if (toolName === "grep") {
-				extra = await augmentGrep(input as Parameters<typeof augmentGrep>[0], ctx.cwd);
-			} else if (toolName === "find") {
-				extra = await augmentFind(input as Parameters<typeof augmentFind>[0], ctx.cwd);
-			} else if (toolName === "read") {
-				extra = await augmentRead(input as Parameters<typeof augmentRead>[0], ctx.cwd);
+			if (isGrepToolResult(event)) {
+				extra = await augmentGrep(event.input as GrepToolInput, ctx.cwd);
+			} else if (isFindToolResult(event)) {
+				extra = await augmentFind(event.input as FindToolInput, ctx.cwd);
+			} else if (isReadToolResult(event)) {
+				extra = await augmentRead(event.input as ReadToolInput, ctx.cwd);
 			}
 
 			if (!extra) return;
-			const content = (event as { content?: Array<{ type: string; text?: string }> }).content ?? [];
-			return { content: [textBlock(extra), ...content] };
+			return { content: [textBlock(extra), ...event.content] };
 		} catch (err) {
-			debug(`tool_result(${(event as { toolName?: string }).toolName}) failed: ${(err as Error).message}`);
+			debug(`tool_result failed: ${(err as Error).message}`);
 		}
 	});
 }
