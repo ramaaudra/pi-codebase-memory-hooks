@@ -28,7 +28,6 @@
  *   CBM_HOOKS_DISABLE "1" / "true" to disable all enrichment
  *   CBM_HOOKS_DEBUG   "1" / "true" to log actions to stderr
  */
-
 import type {
 	ExtensionAPI,
 	FindToolInput,
@@ -42,17 +41,18 @@ import { access, constants as fsConstants } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_CBM_BIN = "/Users/mbam1/.local/bin/codebase-memory-mcp";
 const DISABLED = /^(1|true)$/i.test(process.env.CBM_HOOKS_DISABLE ?? "");
 const DEBUG = /^(1|true)$/i.test(process.env.CBM_HOOKS_DEBUG ?? "");
 const CLI_TIMEOUT_MS = 5000;
 const MAX_BUFFER = 4 * 1024 * 1024;
 const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
 
-// Resolve the CBM binary once: explicit CBM_BIN env > $PATH lookup > hardcoded
-// fallback. Resolving via $PATH makes the package portable across machines
-// without forcing users to set CBM_BIN.
-async function resolveBin(): Promise<string> {
+// Resolve the CBM binary once, portably: explicit CBM_BIN env comes first, then
+// a $PATH lookup for `codebase-memory-mcp`. Returns null when the binary cannot
+// be found anywhere — the hooks then silently no-op (no crash, no mailbox on
+// the author's own machine). Resolving via $PATH keeps the package portable
+// across machines without forcing users to set CBM_BIN.
+async function resolveBin(): Promise<string | null> {
 	const envBin = process.env.CBM_BIN;
 	if (envBin) return envBin;
 	for (const dir of (process.env.PATH ?? "").split(delimiter)) {
@@ -65,11 +65,11 @@ async function resolveBin(): Promise<string> {
 			// not in this dir
 		}
 	}
-	return DEFAULT_CBM_BIN;
+	return null;
 }
 
-let binPromise: Promise<string> | null = null;
-function bin(): Promise<string> {
+let binPromise: Promise<string | null> | null = null;
+function bin(): Promise<string | null> {
 	return (binPromise ??= resolveBin());
 }
 
@@ -102,8 +102,13 @@ function textBlock(text: string) {
 
 async function listProjects(): Promise<ProjectInfo[]> {
 	if (cache && Date.now() - cache.at < PROJECT_CACHE_TTL_MS) return cache.projects;
+	const binPath = await bin();
+	if (!binPath) {
+		debug("codebase-memory-mcp not found on $PATH or CBM_BIN; hooks disabled");
+		return [];
+	}
 	try {
-		const { stdout } = await execFileAsync(await bin(), ["cli", "list_projects", "{}"], {
+		const { stdout } = await execFileAsync(binPath, ["cli", "list_projects", "{}"], {
 			timeout: CLI_TIMEOUT_MS,
 			maxBuffer: MAX_BUFFER,
 		});
@@ -132,7 +137,9 @@ function findProject(projects: ProjectInfo[], absPath: string): ProjectInfo | nu
 
 async function runCli(tool: string, args: Record<string, unknown>): Promise<any | null> {
 	try {
-		const { stdout } = await execFileAsync(await bin(), ["cli", tool, JSON.stringify(args)], {
+		const binPath = await bin();
+		if (!binPath) return null;
+		const { stdout } = await execFileAsync(binPath, ["cli", tool, JSON.stringify(args)], {
 			timeout: CLI_TIMEOUT_MS,
 			maxBuffer: MAX_BUFFER,
 		});

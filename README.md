@@ -89,7 +89,7 @@ All graph lookups use the CBM CLI one-shot mode (`codebase-memory-mcp cli …`),
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CBM_BIN` | _(unset)_ | Path to the `codebase-memory-mcp` binary. If unset, the extension auto-resolves `codebase-memory-mcp` from `$PATH`; falls back to a hardcoded default only if not on `$PATH`. Set this only to override. |
+| `CBM_BIN` | _(umbai)_ | Path to the `codebase-memory-mcp` binary. If unset, the extension auto-resolves `codebase-memory-mcp` from `$PATH`. If the binary is found nowhere, the hooks stay quiet (no-op). Set `CBM_BIN` only to override. |
 | `CBM_HOOKS_DISABLE` | unset | `1` or `true` disables all enrichment. |
 | `CBM_HOOKS_DEBUG` | unset | `1` or `true` logs actions to stderr. |
 
