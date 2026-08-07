@@ -2,25 +2,46 @@
 
 [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) lifecycle hooks for the [pi coding agent](https://pi.dev) — a faithful port of the hooks CBM installs for Claude Code, adapted to pi's Extensions API.
 
-It bundles three things:
+It bundles four things:
 
-1. **Extension** (`extensions/cbm-graph-context.ts`) — replicates the four CBM lifecycle hooks:
+1. **Lifecycle hooks** (`extensions/cbm-graph-context.ts`) — replicates the four CBM lifecycle hooks:
    - `SessionStart` / `SubagentStart` reminder → pi `before_agent_start` (appends CBM guidance to the system prompt, gated to indexed projects)
    - `PreToolUse` Grep/Glob augment → pi `tool_result` for `grep`/`find` (enriches results with matching graph symbols)
    - `PostToolUse` Read coverage → pi `tool_result` for `read` (flags code files that have no graph nodes)
-2. **Skill** (`skills/codebase-memory/SKILL.md`) — the canonical CBM knowledge-graph tool guide (same content CBM installs for Claude Code).
-3. **`AGENTS.md`** — the CBM managed-context block, shipped as a template for users who want the static guidance without the extension.
+2. **One-command bootstrap** (`extensions/cbm-bootstrap.ts`) — the `/cbm-install` and `/cbm-status` commands that install the latest CBM binary from the official repo, register the MCP server in `~/.pi/agent/mcp.json` (idempotent merge), and optionally index the current project. See [Quick start](#quick-start).
+3. **Skill** (`skills/codebase-memory/SKILL.md`) — the canonical CBM knowledge-graph tool guide (same content CBM installs for Claude Code).
+4. **`AGENTS.md`** — the CBM managed-context block, shipped as a template for users who want the static guidance without the extension.
 
 > **Design note:** pi's `tool_call` can block or mutate tool input but cannot attach `additionalContext` beside a tool call the way Claude's `PreToolUse` does. Enriching `tool_result` is the pi-idiomatic equivalent — the LLM still sees the graph context attached to grep/find/read results. Non-blocking and fail-open, exactly like CBM's own hooks.
 
+## Quick start
+
+The package cannot bundle CBM's 200 MB binary, but it makes the whole setup one explicit command. After installing the package and reloading pi:
+
+```bash
+/cbm-install
+```
+
+This downloads the **latest official** `codebase-memory-mcp` (checksum-verified by the repo's own `install.sh`), installs it, registers the MCP server in `~/.pi/agent/mcp.json` (merging — it never clobbers existing servers), and asks whether to index the current project. Then **restart pi or run `/reload`** so the MCP graph tools load into the session.
+
+Check readiness any time with:
+
+```bash
+/cbm-status
+```
+
+> Nothing runs automatically on package load — install, config writes, and indexing happen only when you invoke the commands (install is also gated by a confirmation dialog).
+
 ## Prerequisites
 
-- The [`codebase-memory-mcp`](https://github.com/DeusData/codebase-memory-mcp) binary on `$PATH` (or pointed to by `CBM_BIN`). Install it first:
+- **Either** install the CBM binary manually **or** use `/cbm-install` (recommended):
   ```bash
   curl -fsSL https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh | bash
   ```
-- The MCP server configured for pi (the installer writes `~/.pi/agent/mcp.json` automatically; if not, add it manually).
+- The MCP server configured for pi (`/cbm-install` does this for you; the manual installer writes `~/.pi/agent/mcp.json` too — if not, add it manually).
 - At least one project indexed by CBM. Hooks only enrich when the working directory is inside an indexed project — otherwise they stay quiet.
+
+The hooks and `/cbm-status` find the binary via `CBM_BIN` → `$PATH` → `~/.local/bin` (the official installer's default target), so no shell-PATH editing is required.
 
 ## Install
 
@@ -89,11 +110,17 @@ All graph lookups use the CBM CLI one-shot mode (`codebase-memory-mcp cli …`),
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CBM_BIN` | _(umbai)_ | Path to the `codebase-memory-mcp` binary. If unset, the extension auto-resolves `codebase-memory-mcp` from `$PATH`. If the binary is found nowhere, the hooks stay quiet (no-op). Set `CBM_BIN` only to override. |
-| `CBM_HOOKS_DISABLE` | unset | `1` or `true` disables all enrichment. |
+| `CBM_BIN` | _(unset)_ | Path to the `codebase-memory-mcp` binary. If unset, the hooks and `/cbm-status` auto-resolve from `$PATH` → `~/.local/bin`. If the binary is found nowhere, they stay quiet (no-op). Set `CBM_BIN` only to override. |
+| `CBM_INSTALL_DIR` | `~/.local/bin` | Directory `/cbm-install` installs the binary into (same default as the official `install.sh`). |
+| `CBM_HOOKS_DISABLE` | unset | `1` or `true` disables all enrichment and the bootstrap commands. |
 | `CBM_HOOKS_DEBUG` | unset | `1` or `true` logs actions to stderr. |
 
-> The extension auto-resolves `codebase-memory-mcp` from `$PATH` at runtime, so it works on any machine where CBM is installed — no `CBM_BIN` needed unless you want to override.
+## Bootstrap commands
+
+| Command | Behavior |
+|---|---|
+| `/cbm-install` | Download the latest official `codebase-memory-mcp`, install to `CBM_INSTALL_DIR`, register the MCP server in `~/.pi/agent/mcp.json` (idempotent merge), verify `--version`, and optionally index the current project. Confirmation-gated. |
+| `/cbm-status` | Read-only readiness report: binary present + version, MCP registered in pi's `mcp.json`, and whether the current project is indexed. |
 
 ## Optional: install the AGENTS.md managed block
 

@@ -35,7 +35,8 @@ import type {
 	ReadToolInput,
 } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
-import { delimiter, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { delimiter, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { access, constants as fsConstants } from "node:fs/promises";
 
@@ -48,16 +49,18 @@ const MAX_BUFFER = 4 * 1024 * 1024;
 const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
 
 // Resolve the CBM binary once, portably: explicit CBM_BIN env comes first, then
-// a $PATH lookup for `codebase-memory-mcp`. Returns null when the binary cannot
-// be found anywhere — the hooks then silently no-op (no crash, no mailbox on
-// the author's own machine). Resolving via $PATH keeps the package portable
-// across machines without forcing users to set CBM_BIN.
+// a $PATH lookup for `codebase-memory-mcp`, then the official installer's
+// default target dir (~/.local/bin) — so a binary installed by /cbm-install is
+// found even when the dir is not on $PATH. Returns null when the binary cannot
+// be found anywhere — the hooks then silently no-op (no crash).
 async function resolveBin(): Promise<string | null> {
 	const envBin = process.env.CBM_BIN;
 	if (envBin) return envBin;
-	for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+	const dirs = (process.env.PATH ?? "").split(delimiter);
+	dirs.push(join(homedir(), ".local", "bin"));
+	for (const dir of dirs) {
 		if (!dir) continue;
-		const candidate = resolve(dir, "codebase-memory-mcp");
+		const candidate = join(dir, "codebase-memory-mcp");
 		try {
 			await access(candidate, fsConstants.X_OK);
 			return candidate;
