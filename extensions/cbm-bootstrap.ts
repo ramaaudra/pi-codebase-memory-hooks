@@ -164,6 +164,46 @@ async function tryVersion(bin: string): Promise<string | null> {
 	}
 }
 
+// Latest released version from the official repo (tag_name like "v0.9.0").
+// Returns null when the lookup fails (offline, rate limit, …) so callers can
+// fall back to a conservative "unknown latest" decision instead of guessing.
+async function fetchLatestVersion(): Promise<string | null> {
+	const url = `https://api.github.com/repos/${REPO}/releases/latest`;
+	const res = await fetchWithTimeout(url, 15_000);
+	if (!res.ok) return null;
+	const data = (await res.json()) as { tag_name?: string };
+	const tag = data.tag_name;
+	return tag ? tag.replace(/^v/i, "") : null;
+}
+
+// Numeric 3-segment compare with fallback for unparseable strings.
+// Returns <0 if a<b, 0 if equal, >0 if a>b.
+function compareVersions(a: string, b: string): number {
+	const toNums = (s: string): number[] => {
+		const m = /v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(s.trim());
+		return m ? [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)] : [];
+	};
+	const pa = toNums(a);
+	const pb = toNums(b);
+	if (pa.length === 0 || pb.length === 0) return a < b ? -1 : a > b ? 1 : 0;
+	for (let i = 0; i < 3; i++) {
+		if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+	}
+	return 0;
+}
+
+// Whether pi's mcp.json already registers the CBM MCP server.
+async function mcpRegistered(): Promise<boolean> {
+	try {
+		const data = JSON.parse(await readFile(mcpJsonPath(), "utf8")) as {
+			mcpServers?: Record<string, unknown>;
+		};
+		return Boolean(data.mcpServers?.["codebase-memory-mcp"]);
+	} catch {
+		return false;
+	}
+}
+
 export default function (pi: ExtensionAPI): void {
 	if (DISABLED) {
 		debug("disabled by CBM_HOOKS_DISABLE");
@@ -173,23 +213,65 @@ export default function (pi: ExtensionAPI): void {
 	// ── /cbm-install ─────────────────────────────────────────────────────────
 	pi.registerCommand("cbm-install", {
 		description:
-			"Install or update codebase-memory-mcp (latest from the official repo), configure pi's MCP server, and optionally index the current project.",
+			"Install or update codebase-memory-mcp (latest from the official repo), configure pi's MCP server, and optionally index the current project. Skips the download when already up to date; use --force to update anyway.",
 		handler: async (args, ctx) => {
 			const flags = (args ?? "").trim();
 			const wantIndex = !/\b--no-index\b/.test(flags);
+			const force = /\b--force\b|\b-f\b/.test(flags);
 			const dir = installDir();
 
+			ctx.ui.setStatus?.("cbm", "Checking current install…");
+
+			const [installedVer, latestVer, registered] = await Promise.all([
+				tryVersion(binPath()),
+				fetchLatestVersion(),
+				mcpRegistered(),
+			]);
+			const installed = installedVer != null;
+			const upToDate = latestVer != null && compareVersions(installedVer ?? "", latestVer) >= 0;
+
+			// Already latest + registered + not forced → skip the 200 MB download.
+			if (!force && installed && registered && latestVer != null && upToDate) {
+				if (wantIndex) {
+					ctx.ui.setStatus?.("cbm", "Indexing current project…");
+					try {
+						await execFileAsync(binPath(), ["cli", "index_repository", JSON.stringify({ repo_path: ctx.cwd })], {
+							timeout: 300_000,
+							maxBuffer: MAX_OUTPUT,
+						});
+						ctx.ui.notify(`Already on latest (v${latestVer}) — index refreshed for ${ctx.cwd}`, "info");
+					} catch (e) {
+						ctx.ui.notify(`Already on latest (v${latestVer}); indexing failed: ${(e as Error).message}`, "error");
+					}
+				} else {
+					ctx.ui.notify(`codebase-memory-mcp is already up to date (v${latestVer}). Nothing to do.`, "info");
+				}
+				ctx.ui.setStatus?.("cbm", undefined);
+				return;
+			}
+
+			// Everything below means we (re)install: fresh install, or an update is
+			// available and the user confirms it.
+			const current = installed ? ` (you have v${installedVer.trim()})` : "";
+			const target = latestVer ? ` v${latestVer}` : " the latest";
+			const reason = force
+				? "forced reinstall"
+				: latestVer != null && installed && !upToDate
+					? `new version available (v${installedVer.trim()} → v${latestVer})`
+					: latestVer == null && installed
+						? "latest version could not be checked — reinstall anyway"
+						: "first-time install";
+
 			const confirmMsg =
-				`This will:\n` +
-				`  1. Download the latest codebase-memory-mcp from ${REPO} (a ~200 MB binary).\n` +
-				`  2. Install to ${dir}\n` +
-				`  3. Ensure pi's ${mcpJsonPath()} registers the MCP server (merge, no clobber)\n` +
-				(wantIndex ? `  4. Index the current project (${ctx.cwd})\n` : ``) +
-				`\nContinue?`;
+				`codebase-memory-mcp is not up to date${current}.\n` +
+				`=> ${reason}\n` +
+				`This will download ${target} from ${REPO} (a ~200 MB binary), install to ${dir}, and ensure pi's ${mcpJsonPath()} registers the MCP server (merge, no clobber).\n` +
+				(wantIndex ? `It will also index the current project (${ctx.cwd}).\n` : ``) +
+				`Continue? [y/N]`;
 
 			if (ctx.hasUI) {
-				const ok = await ctx.ui.confirm("Install codebase-memory-mcp", confirmMsg);
-				if (!ok) {
+				const answer = await ctx.ui.confirm("Install / update codebase-memory-mcp", confirmMsg);
+				if (!answer) {
 					ctx.ui.notify("Cancelled.", "info");
 					return;
 				}
